@@ -1,15 +1,28 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:flutter_app_todo/main.dart';
+import 'package:flutter_app_todo/models/settings.dart';
+import 'package:flutter_app_todo/models/task.dart';
+import 'package:flutter_app_todo/providers/task_provider.dart';
+import 'package:flutter_app_todo/screens/tasks_screen.dart';
+import 'package:flutter_app_todo/services/notification_service.dart';
+import 'package:flutter_app_todo/services/task_service.dart';
+
+class _FakeNotificationService implements NotificationService {
+  @override
+  Future<void> cancelAll() async {}
+
+  @override
+  Future<void> cancelTaskReminder(String taskId) async {}
+
+  @override
+  Future<void> init() async {}
+
+  @override
+  Future<void> scheduleTaskReminder(Task task) async {}
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -18,25 +31,44 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  testWidgets('creates and clears todos', (WidgetTester tester) async {
-    await tester.pumpWidget(const MyApp());
+  testWidgets('user can add and complete a task', (WidgetTester tester) async {
+    final taskService = TaskService();
+    final notificationService = _FakeNotificationService();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ChangeNotifierProvider(
+          create: (_) => TaskProvider(
+            taskService: taskService,
+            notificationService: notificationService,
+            initialTasks: const [],
+            defaultSortOption: TaskSortOption.dueDate,
+          ),
+          child: const TasksScreen(),
+        ),
+      ),
+    );
+
+    await tester.pump();
+
+    expect(
+      find.text('No tasks yet. Tap the + button to create one.'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byType(FloatingActionButton));
     await tester.pumpAndSettle();
 
-    expect(find.text('No tasks yet.\nAdd something to do!'), findsOneWidget);
-
-    await tester.enterText(find.byType(TextField), 'Buy groceries');
-    await tester.tap(find.byIcon(Icons.add));
+    await tester.enterText(find.byType(TextFormField).first, 'Buy groceries');
+    await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
 
     expect(find.text('Buy groceries'), findsOneWidget);
 
-    await tester.tap(find.byType(CheckboxListTile));
+    await tester.tap(find.byType(Checkbox).first);
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.delete_sweep_outlined));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Buy groceries'), findsNothing);
-    expect(find.text('No tasks yet.\nAdd something to do!'), findsOneWidget);
+    final checkbox = tester.widget<Checkbox>(find.byType(Checkbox).first);
+    expect(checkbox.value, isTrue);
   });
 }

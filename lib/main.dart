@@ -1,214 +1,92 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
 
-void main() {
-  runApp(const MyApp());
+import 'models/settings.dart';
+import 'models/task.dart';
+import 'providers/settings_provider.dart';
+import 'providers/task_provider.dart';
+import 'screens/tasks_screen.dart';
+import 'services/notification_service.dart';
+import 'services/settings_service.dart';
+import 'services/task_service.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  final taskService = TaskService();
+  final settingsService = SettingsService();
+  final notificationService = NotificationService();
+
+  final initialSettings = await settingsService.loadSettings();
+  final initialTasks = await taskService.loadTasks();
+  await notificationService.init();
+
+  runApp(
+    ProTodoApp(
+      taskService: taskService,
+      settingsService: settingsService,
+      notificationService: notificationService,
+      initialSettings: initialSettings,
+      initialTasks: initialTasks,
+    ),
+  );
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class ProTodoApp extends StatelessWidget {
+  const ProTodoApp({
+    super.key,
+    required this.taskService,
+    required this.settingsService,
+    required this.notificationService,
+    required this.initialSettings,
+    required this.initialTasks,
+  });
+
+  final TaskService taskService;
+  final SettingsService settingsService;
+  final NotificationService notificationService;
+  final AppSettings initialSettings;
+  final List<Task> initialTasks;
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Simple To-Do',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(colorSchemeSeed: Colors.blue, useMaterial3: true),
-      home: const TodoPage(),
-    );
-  }
-}
-
-class TodoItem {
-  String title;
-  bool isDone;
-
-  TodoItem({required this.title, this.isDone = false});
-
-  Map<String, dynamic> toJson() => {'title': title, 'isDone': isDone};
-
-  factory TodoItem.fromJson(Map<String, dynamic> json) {
-    return TodoItem(
-      title: json['title'] as String,
-      isDone: json['isDone'] as bool? ?? false,
-    );
-  }
-}
-
-class TodoPage extends StatefulWidget {
-  const TodoPage({super.key});
-
-  @override
-  State<TodoPage> createState() => _TodoPageState();
-}
-
-class _TodoPageState extends State<TodoPage> {
-  final List<TodoItem> _todos = [];
-  final TextEditingController _controller = TextEditingController();
-  bool _isLoading = true;
-
-  static const String _storageKey = 'todos';
-
-  @override
-  void initState() {
-    super.initState();
-    _loadTodos();
-  }
-
-  Future<void> _loadTodos() async {
-    final prefs = await SharedPreferences.getInstance();
-    final stored = prefs.getStringList(_storageKey);
-
-    if (stored != null) {
-      _todos.clear();
-      for (final item in stored) {
-        final decoded = jsonDecode(item) as Map<String, dynamic>;
-        _todos.add(TodoItem.fromJson(decoded));
-      }
-    }
-
-    setState(() {
-      _isLoading = false;
-    });
-  }
-
-  Future<void> _saveTodos() async {
-    final prefs = await SharedPreferences.getInstance();
-    final encoded = _todos.map((t) => jsonEncode(t.toJson())).toList();
-    await prefs.setStringList(_storageKey, encoded);
-  }
-
-  Future<void> _addTodo() async {
-    final text = _controller.text.trim();
-    if (text.isEmpty) return;
-
-    setState(() {
-      _todos.insert(0, TodoItem(title: text));
-      _controller.clear();
-    });
-
-    await _saveTodos();
-  }
-
-  Future<void> _toggleTodo(int index, bool? value) async {
-    setState(() {
-      _todos[index].isDone = value ?? false;
-    });
-    await _saveTodos();
-  }
-
-  Future<void> _deleteTodo(int index) async {
-    setState(() {
-      _todos.removeAt(index);
-    });
-    await _saveTodos();
-  }
-
-  Future<void> _clearCompleted() async {
-    setState(() {
-      _todos.removeWhere((t) => t.isDone);
-    });
-    await _saveTodos();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Simple To-Do'),
-        actions: [
-          IconButton(
-            tooltip: 'Clear completed',
-            icon: const Icon(Icons.delete_sweep_outlined),
-            onPressed: _todos.any((t) => t.isDone) ? _clearCompleted : null,
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(
+          create: (_) => SettingsProvider(
+            settingsService: settingsService,
+            initialSettings: initialSettings,
           ),
-        ],
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _controller,
-                          onSubmitted: (_) => _addTodo(),
-                          decoration: const InputDecoration(
-                            hintText: 'Add a new task...',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      FilledButton.icon(
-                        onPressed: _addTodo,
-                        icon: const Icon(Icons.add),
-                        label: const Text('Add'),
-                      ),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: _todos.isEmpty
-                      ? const Center(
-                          child: Text(
-                            'No tasks yet.\nAdd something to do!',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(fontSize: 16),
-                          ),
-                        )
-                      : ListView.builder(
-                          itemCount: _todos.length,
-                          itemBuilder: (context, index) {
-                            final todo = _todos[index];
-                            return Dismissible(
-                              key: ValueKey(todo.title + index.toString()),
-                              direction: DismissDirection.endToStart,
-                              background: Container(
-                                alignment: Alignment.centerRight,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 20,
-                                ),
-                                child: const Icon(
-                                  Icons.delete,
-                                  color: Colors.white,
-                                ),
-                              ),
-                              onDismissed: (_) => _deleteTodo(index),
-                              child: CheckboxListTile(
-                                title: Text(
-                                  todo.title,
-                                  style: TextStyle(
-                                    decoration: todo.isDone
-                                        ? TextDecoration.lineThrough
-                                        : TextDecoration.none,
-                                    color: todo.isDone
-                                        ? Colors.grey
-                                        : Colors.black,
-                                  ),
-                                ),
-                                value: todo.isDone,
-                                onChanged: (value) => _toggleTodo(index, value),
-                              ),
-                            );
-                          },
-                        ),
-                ),
-              ],
+        ),
+        ChangeNotifierProvider(
+          create: (_) => TaskProvider(
+            taskService: taskService,
+            notificationService: notificationService,
+            initialTasks: initialTasks,
+            defaultSortOption: initialSettings.defaultSortOption,
+            notificationsEnabled: initialSettings.notificationsEnabled,
+          ),
+        ),
+      ],
+      child: Consumer<SettingsProvider>(
+        builder: (context, settings, _) {
+          return MaterialApp(
+            title: 'Pro To-Do',
+            debugShowCheckedModeBanner: false,
+            themeMode: settings.themeMode,
+            theme: ThemeData(
+              colorSchemeSeed: Colors.indigo,
+              useMaterial3: true,
             ),
+            darkTheme: ThemeData(
+              colorSchemeSeed: Colors.indigo,
+              brightness: Brightness.dark,
+              useMaterial3: true,
+            ),
+            home: const TasksScreen(),
+          );
+        },
+      ),
     );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
   }
 }
